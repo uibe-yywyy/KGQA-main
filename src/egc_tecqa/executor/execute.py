@@ -7,12 +7,20 @@ from egc_tecqa.parser.intent import ParsedQuestion
 from .temporal_ops import after, before, equal_time, first, last
 
 
-def _answer_from_fact(fact: Fact, slot: str) -> str:
+def _format_time(value: str, granularity: str | None) -> str:
+    if granularity == "year":
+        return value[:4]
+    if granularity == "month":
+        return value[:7]
+    return value
+
+
+def _answer_from_fact(fact: Fact, slot: str, granularity: str | None = None) -> str:
     if slot == "object":
         return fact.object
     if slot == "time":
         t = fact.representative_time
-        return t.isoformat() if t else ""
+        return _format_time(t.isoformat(), granularity) if t else ""
     return fact.subject
 
 
@@ -34,17 +42,17 @@ def execute_chain(parsed: ParsedQuestion, chain: EvidenceChain) -> EvidenceChain
     elif op == "last":
         selected = last(facts)
     elif op == "after_first":
-        anchors = first(facts)
-        selected = first(after(anchors[0], facts)) if anchors else []
+        selected = first(after(chain.anchor_facts[0], facts[1:]))
     elif op == "before_last":
-        anchors = last(facts)
-        selected = last(before(anchors[0], facts)) if anchors else []
+        selected = last(before(chain.anchor_facts[0], facts[1:]))
     elif op == "equal":
-        selected = equal_time(parsed.anchor_expression, facts)
+        selected = equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level"))
     else:
         selected = facts[:1]
 
-    chain.candidate_answers = [_answer_from_fact(fact, parsed.target_slot) for fact in selected]
+    chain.candidate_answers = [
+        _answer_from_fact(fact, parsed.target_slot, parsed.metadata.get("time_level"))
+        for fact in selected
+    ]
     chain.execution_result = [answer for answer in chain.candidate_answers if answer]
     return chain
-

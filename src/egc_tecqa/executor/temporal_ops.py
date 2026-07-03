@@ -33,9 +33,18 @@ def last(candidates: list[Fact]) -> list[Fact]:
     return [max(valid, key=lambda f: fact_time(f))] if valid else []
 
 
-def equal_time(target: str | date | None, candidates: list[Fact]) -> list[Fact]:
+def equal_time(target: str | date | None, candidates: list[Fact], granularity: str | None = None) -> list[Fact]:
     if target is None:
         return candidates
     target_date = parse_date(target)
+    if granularity == "year":
+        return [fact for fact in candidates if fact_time(fact) and fact_time(fact).year == target_date.year]
+    if granularity == "month":
+        return [
+            fact
+            for fact in candidates
+            if fact_time(fact)
+            and fact_time(fact).year == target_date.year
+            and fact_time(fact).month == target_date.month
+        ]
     return [fact for fact in candidates if fact_time(fact) == target_date]
-

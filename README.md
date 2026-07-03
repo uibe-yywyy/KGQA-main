@@ -38,6 +38,36 @@ rule: first valid visit to Thailand after the anchor
 answer: Malaysia
 ```
 
+## MultiTQ Data
+
+The official MultiTQ benchmark is expected at:
+
+```text
+data/raw/MultiTQ/
+```
+
+The downloaded archive is intentionally ignored by git:
+
+```text
+data/raw/MultiTQ_Dataset.zip
+```
+
+Run a small real-data sanity check:
+
+```bash
+python3 scripts/run_multitq_debug.py --split test --per-type 2
+```
+
+Current status of this script:
+
+- loads the full MultiTQ KG;
+- links entities and relations with a lightweight heuristic parser;
+- builds a simple graph-connected chain;
+- executes temporal rules;
+- writes debug predictions to `outputs/cases/multitq_debug_predictions.jsonl`.
+
+This is a scaffold baseline, not the final method. The next major work items are stronger anchor extraction, multi-candidate pivot search, and beam-search chain construction.
+
 ## Project Layout
 
 ```text

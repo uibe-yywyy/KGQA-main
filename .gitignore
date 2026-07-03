@@ -7,4 +7,4 @@ data/processed/
 outputs/runs/
 outputs/tables/
 outputs/cases/
-
+!outputs/.gitkeep

@@ -12,6 +12,12 @@ def infer_operator(question: str, question_type: str | None = None) -> str:
             return "after_first"
         if "before_last" in qt:
             return "before_last"
+        if "before_after" in qt:
+            q = question.lower()
+            if "before" in q:
+                return "before"
+            if "after" in q:
+                return "after"
         if qt == "after" or qt.endswith("_after"):
             return "after"
         if qt == "before" or qt.endswith("_before"):

@@ -12,6 +12,11 @@ def _fact_time_key(fact: Fact) -> int:
     return t.toordinal() if t else 0
 
 
+def _ordered_for_operator(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
+    reverse = parsed.temporal_operator in {"last", "before_last"}
+    return sorted(facts, key=_fact_time_key, reverse=reverse)
+
+
 def _relation_matches(fact: Fact, relations: list[str]) -> bool:
     if not relations:
         return True
@@ -54,7 +59,7 @@ def build_simple_connected_chains(
         for fact in candidate_facts
         if _relation_matches(fact, parsed.relations) and (fact.entities & entity_set)
     ]
-    relevant.sort(key=_fact_time_key)
+    relevant = _ordered_for_operator(parsed, relevant)
     relevant = relevant[:max_facts]
 
     if not relevant:
