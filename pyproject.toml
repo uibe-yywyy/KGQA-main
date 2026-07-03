@@ -1,0 +1,11 @@
+[project]
+name = "egc-tecqa"
+version = "0.1.0"
+description = "Executable graph-connected temporal evidence chains for TKGQA"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

@@ -1,0 +1,2 @@
+"""Candidate fact retrieval methods."""
+

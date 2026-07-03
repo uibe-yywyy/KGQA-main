@@ -1,0 +1,10 @@
+__pycache__/
+.pycache/
+*.py[cod]
+.DS_Store
+data/raw/
+data/processed/
+outputs/runs/
+outputs/tables/
+outputs/cases/
+
