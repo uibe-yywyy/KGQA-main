@@ -1,7 +1,9 @@
 import unittest
 
 from egc_tecqa.chain.search import build_simple_connected_chains
+from egc_tecqa.chain.model import EvidenceChain
 from egc_tecqa.executor.execute import execute_chain
+from egc_tecqa.executor.verifier import verify_chain
 from egc_tecqa.kg.fact import Fact
 from egc_tecqa.parser.heuristic_grounding import HeuristicGrounder
 from egc_tecqa.parser.intent import ParsedQuestion
@@ -23,6 +25,8 @@ class ChainExecutionTest(unittest.TestCase):
         grounder = HeuristicGrounder(
             entities=["Criminal_(Africa)", "Criminal_(Somalia)", "China"],
             relations=[
+                "Express_intent_to_cooperate",
+                "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)",
                 "Make_optimistic_comment",
                 "Praise_or_endorse",
                 "Criticize_or_denounce",
@@ -34,6 +38,11 @@ class ChainExecutionTest(unittest.TestCase):
         self.assertEqual(grounder.link_relation("expressed optimism about"), ["Make_optimistic_comment"])
         self.assertEqual(grounder.link_relation("praised"), ["Praise_or_endorse"])
         self.assertEqual(grounder.link_relation("condemned"), ["Criticize_or_denounce"])
+        self.assertEqual(grounder.link_relation("express interest in cooperating with"), ["Express_intent_to_cooperate"])
+        self.assertEqual(
+            grounder.link_relation("wish to establish diplomatic cooperation"),
+            ["Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"],
+        )
         self.assertEqual(
             grounder.link_relation("made Burundi suffer from conventional military forces"),
             ["Use_conventional_military_force"],
@@ -41,7 +50,13 @@ class ChainExecutionTest(unittest.TestCase):
 
     def test_grounding_prefers_specific_role_entity(self):
         grounder = HeuristicGrounder(
-            entities=["Kazakhstan", "Cabinet_/_Council_of_Ministers_/_Advisors_(Kazakhstan)"],
+            entities=[
+                "Business_(Belgium)",
+                "Cabinet_/_Council_of_Ministers_/_Advisors_(Kazakhstan)",
+                "Citizen_(Belgium)",
+                "Citizen_(Norway)",
+                "Kazakhstan",
+            ],
             relations=[],
         )
 
@@ -49,6 +64,8 @@ class ChainExecutionTest(unittest.TestCase):
             grounder.ground_entity_mention("Cabinet Council of Ministers of Kazakhstan"),
             "Cabinet_/_Council_of_Ministers_/_Advisors_(Kazakhstan)",
         )
+        self.assertEqual(grounder.ground_entity_mention("citizens of Belgium"), "Citizen_(Belgium)")
+        self.assertEqual(grounder.ground_entity_mention("citizens of Norway"), "Citizen_(Norway)")
 
     def test_relative_anchor_prefers_fact_connected_to_main_entity(self):
         facts = [
@@ -94,6 +111,21 @@ class ChainExecutionTest(unittest.TestCase):
         executed = execute_chain(parsed, chain)
 
         self.assertEqual(executed.execution_result[:2], ["Barnaby_Joyce", "Vietnam"])
+
+    def test_verifier_supports_year_and_month_time_answers(self):
+        fact = Fact.from_values("1", "Citizen_(Belgium)", "Sign_formal_agreement", "China", "2005-06-10")
+        chain = EvidenceChain(
+            chain_id="c",
+            facts=[fact],
+            roles=["answer_fact"],
+            operator="equal",
+            execution_result=["2005-06", "2005"],
+        )
+
+        verified = verify_chain(chain, ["2005-06"])
+
+        self.assertTrue(verified.checks["answer_supported"])
+        self.assertTrue(verified.checks["gold_hit"])
 
 
 if __name__ == "__main__":

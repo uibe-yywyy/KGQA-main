@@ -7,11 +7,14 @@ from egc_tecqa.eval.metrics import normalize_answer
 
 def verify_chain(chain: EvidenceChain, gold_answers: list[str] | None = None) -> EvidenceChain:
     fact_entities = {entity for fact in chain.facts for entity in fact.entities}
-    fact_times = {
-        fact.representative_time.isoformat()
-        for fact in chain.facts
-        if fact.representative_time is not None
-    }
+    fact_times = set()
+    for fact in chain.facts:
+        if fact.representative_time is None:
+            continue
+        iso_time = fact.representative_time.isoformat()
+        fact_times.add(iso_time)
+        fact_times.add(iso_time[:7])
+        fact_times.add(iso_time[:4])
     support_pool = fact_entities | fact_times
     predicted = {normalize_answer(answer) for answer in chain.execution_result}
     gold = {normalize_answer(answer) for answer in gold_answers or []}

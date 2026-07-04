@@ -68,7 +68,10 @@ def _tokens(text: str) -> set[str]:
     for token in normalize_text(text).split():
         if token in STOPWORDS:
             continue
-        tokens.append(DEMONYMS.get(token, token))
+        token = DEMONYMS.get(token, token)
+        if token.endswith("s") and len(token) > 3:
+            tokens.append(token[:-1])
+        tokens.append(token)
     return set(tokens)
 
 
@@ -172,9 +175,10 @@ class HeuristicGrounder:
             (("negotiate",), "Express_intent_to_meet_or_negotiate"),
             (("negotiation",), "Express_intent_to_meet_or_negotiate"),
             (("meet",), "Express_intent_to_meet_or_negotiate"),
-            (("cooperation",), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
-            (("cooperate",), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
-            (("cooperating",), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
+            (("diplomatic", "cooperation"), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
+            (("cooperation",), "Express_intent_to_cooperate"),
+            (("cooperate",), "Express_intent_to_cooperate"),
+            (("cooperating",), "Express_intent_to_cooperate"),
             (("optimism",), "Make_optimistic_comment"),
             (("optimistic",), "Make_optimistic_comment"),
             (("praise",), "Praise_or_endorse"),
