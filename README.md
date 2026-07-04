@@ -68,6 +68,31 @@ Current status of this script:
 
 This is a scaffold baseline, not the final method. The next major work items are stronger anchor extraction, multi-candidate pivot search, and beam-search chain construction.
 
+## LLM Configuration
+
+LLM access is configured through local environment variables. Do not commit real API keys.
+
+```bash
+cp .env.example .env
+# edit .env locally
+```
+
+For a DeepSeek OpenAI-compatible endpoint:
+
+```text
+LLM_BASE_URL=https://api.deepseek.com
+LLM_API_KEY=...
+LLM_MODEL=deepseek-chat
+```
+
+Run a small parser smoke test:
+
+```bash
+python3 scripts/parse_multitq_with_llm.py --split test --limit 3
+```
+
+The parser currently only extracts semantic structure. Grounding extracted mentions to KG schema is handled separately and will be strengthened next.
+
 ## Project Layout
 
 ```text
