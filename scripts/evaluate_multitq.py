@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", default=".env")
     parser.add_argument("--cache", default="outputs/cache/multitq_parse_cache.jsonl")
     parser.add_argument("--out", default="outputs/eval/multitq_eval_predictions.jsonl")
+    parser.add_argument("--badcases", default=None)
     return parser.parse_args()
 
 
@@ -128,6 +129,171 @@ def categorize_error(
     return "WRONG_SUPPORTED_ANSWER"
 
 
+def diagnosis_for_error(row: dict) -> tuple[str, str]:
+    error_type = row["error_type"]
+    parsed = row.get("parsed", {})
+    metadata = parsed.get("metadata", {})
+    anchor_entity = metadata.get("anchor_entity")
+    grounded_anchor = metadata.get("grounded_anchor_entity")
+
+    if error_type == "OK":
+        return "Prediction matches a gold answer.", "No fix needed."
+    if error_type == "PARSE_OR_GROUNDING_ERROR":
+        return (
+            "Parsed entities or relations are empty or visibly incomplete.",
+            "Improve LLM parsing, schema grounding, or fallback relation/entity linking.",
+        )
+    if error_type == "RETRIEVAL_MISS":
+        return (
+            "No candidate facts were retrieved after parsing and grounding.",
+            "Improve high-recall retrieval using top-m entities/relations and operator-aware expansion.",
+        )
+    if error_type == "NO_CHAIN":
+        return (
+            "Candidate facts exist, but chain construction returned no executable chain.",
+            "Relax chain construction, add beam search, or inspect connectivity constraints.",
+        )
+    if error_type == "ANCHOR_ERROR":
+        return (
+            "The chain lacks a valid temporal anchor for an anchor-relative operator.",
+            "Improve anchor mention grounding and anchor fact scoring.",
+        )
+    if error_type == "EXECUTION_EMPTY":
+        return (
+            "A chain was built, but the temporal executor returned no answer.",
+            "Inspect temporal filter, selector, answer slot, and max-facts truncation.",
+        )
+    if error_type == "ANSWER_UNSUPPORTED":
+        return (
+            "A prediction was produced but is not supported by the selected chain facts.",
+            "Tighten answer projection and support verification.",
+        )
+    if anchor_entity and grounded_anchor and str(anchor_entity) != str(grounded_anchor):
+        return (
+            f"Prediction is supported but wrong; anchor mention {anchor_entity!r} was grounded as {grounded_anchor!r}.",
+            "Prioritize fine-grained anchor/entity grounding and exact mention-to-KG matching.",
+        )
+    return (
+        "Prediction is supported by retrieved facts but differs from the gold answer.",
+        "Inspect anchor selection, candidate scope, temporal selector, and gold answer coverage.",
+    )
+
+
+def compact_chain_trace(chain_debug: dict) -> dict:
+    facts = chain_debug.get("facts", [])
+    roles = chain_debug.get("roles", [])
+    answer_facts = []
+    for role, fact in zip(roles, facts):
+        if role == "anchor_fact" or len(answer_facts) < 3:
+            answer_facts.append({"role": role, "fact": fact})
+    return {
+        "operator": chain_debug.get("operator"),
+        "anchor_facts": chain_debug.get("facts", [])[:1],
+        "selected_or_head_facts": answer_facts,
+        "bridge_entities": chain_debug.get("bridge_entities", []),
+        "checks": chain_debug.get("checks", {}),
+        "execution_result": chain_debug.get("execution_result", []),
+    }
+
+
+def make_badcase(row: dict) -> dict:
+    diagnosis, fix_hint = diagnosis_for_error(row)
+    return {
+        "quid": row["quid"],
+        "qtype": row["qtype"],
+        "question": row["question"],
+        "gold": row["gold"],
+        "pred": row["pred"],
+        "error_type": row["error_type"],
+        "candidate_count": row["candidate_count"],
+        "parsed": row["parsed"],
+        "trace": compact_chain_trace(row.get("chain", {})),
+        "diagnosis": diagnosis,
+        "fix_hint": fix_hint,
+    }
+
+
+def default_badcase_path(out_path: Path) -> Path:
+    name = out_path.stem
+    if name.endswith("_predictions"):
+        name = name[: -len("_predictions")]
+    return ROOT / "outputs" / "badcases" / f"{name}_badcases.jsonl"
+
+
+def write_badcases(rows: list[dict], path: Path) -> dict:
+    badcases = [make_badcase(row) for row in rows if row["error_type"] != "OK"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as handle:
+        for row in badcases:
+            handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+    by_error_dir = path.parent / "by_error_type"
+    by_error_dir.mkdir(parents=True, exist_ok=True)
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in badcases:
+        grouped[row["error_type"]].append(row)
+    for error_type, group in sorted(grouped.items()):
+        error_path = by_error_dir / f"{error_type}.jsonl"
+        with error_path.open("w") as handle:
+            for row in group:
+                handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+    markdown_path = path.with_suffix(".md")
+    write_badcase_markdown(badcases, markdown_path)
+    return {
+        "badcase_count": len(badcases),
+        "badcase_path": str(path),
+        "badcase_markdown": str(markdown_path),
+        "badcase_by_error_dir": str(by_error_dir),
+    }
+
+
+def write_badcase_markdown(badcases: list[dict], path: Path) -> None:
+    counts: dict[str, int] = defaultdict(int)
+    for row in badcases:
+        counts[row["error_type"]] += 1
+
+    lines = [
+        "# MultiTQ Badcase Report",
+        "",
+        "## Error Counts",
+        "",
+    ]
+    if counts:
+        for error_type, count in sorted(counts.items()):
+            lines.append(f"- `{error_type}`: {count}")
+    else:
+        lines.append("- No badcases.")
+
+    lines.extend(["", "## Cases", ""])
+    for idx, row in enumerate(badcases[:50], start=1):
+        lines.extend(
+            [
+                f"### {idx}. {row['error_type']} | quid={row['quid']} | qtype={row['qtype']}",
+                "",
+                f"Question: {row['question']}",
+                "",
+                f"Gold: `{row['gold']}`",
+                "",
+                f"Pred: `{row['pred']}`",
+                "",
+                f"Candidate count: `{row['candidate_count']}`",
+                "",
+                f"Diagnosis: {row['diagnosis']}",
+                "",
+                f"Fix hint: {row['fix_hint']}",
+                "",
+                "Trace:",
+                "",
+                "```json",
+                json.dumps(row["trace"], ensure_ascii=False, indent=2, default=str),
+                "```",
+                "",
+            ]
+        )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def summarize(rows: list[dict], predictions: list[list[str]], golds: list[list[str]]) -> dict:
     by_qtype: dict[str, list[int]] = defaultdict(list)
     support_by_qtype: dict[str, list[int]] = defaultdict(list)
@@ -162,6 +328,7 @@ def main() -> None:
     root = ROOT / args.data_root
     cache_path = ROOT / args.cache
     out_path = ROOT / args.out
+    badcase_path = ROOT / args.badcases if args.badcases else default_badcase_path(out_path)
 
     examples = choose_examples(args, root)
     entities, relations = load_schema(root)
@@ -221,6 +388,7 @@ def main() -> None:
         "cache": str(cache_path),
         **summarize(rows, predictions, golds),
     }
+    summary.update(write_badcases(rows, badcase_path))
     summary_path = out_path.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, default=str))
     print(json.dumps(summary, indent=2, ensure_ascii=False, default=str))

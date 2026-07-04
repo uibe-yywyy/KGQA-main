@@ -70,6 +70,17 @@ Run the repeatable evaluation runner with parse caching and per-type metrics:
 python3 scripts/evaluate_multitq.py --split test --limit 100 --parser llm
 ```
 
+The evaluation runner writes predictions, summaries, parse cache, and badcase reports:
+
+```text
+outputs/eval/*.jsonl
+outputs/eval/*.summary.json
+outputs/cache/*.jsonl
+outputs/badcases/*_badcases.jsonl
+outputs/badcases/*_badcases.md
+outputs/badcases/by_error_type/*.jsonl
+```
+
 For quick local smoke tests without LLM calls:
 
 ```bash

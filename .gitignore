@@ -12,4 +12,5 @@ outputs/tables/
 outputs/cases/
 outputs/cache/
 outputs/eval/
+outputs/badcases/
 !outputs/.gitkeep
