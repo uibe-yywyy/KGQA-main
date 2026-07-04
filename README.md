@@ -58,6 +58,12 @@ Run a small real-data sanity check:
 python3 scripts/run_multitq_debug.py --split test --per-type 2
 ```
 
+Run the same path with LLM parsing and schema grounding:
+
+```bash
+python3 scripts/run_multitq_debug.py --split test --per-type 1 --parser llm
+```
+
 Current status of this script:
 
 - loads the full MultiTQ KG;

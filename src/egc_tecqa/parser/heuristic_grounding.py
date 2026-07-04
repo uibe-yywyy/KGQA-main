@@ -32,9 +32,23 @@ STOPWORDS = {
     "with",
 }
 
+DEMONYMS = {
+    "danish": "denmark",
+    "kazakh": "kazakhstan",
+    "taiwanese": "taiwan",
+    "iraqi": "iraq",
+    "chinese": "china",
+    "ethiopian": "ethiopia",
+}
+
 
 def _tokens(text: str) -> set[str]:
-    return {token for token in normalize_text(text).split() if token not in STOPWORDS}
+    tokens = []
+    for token in normalize_text(text).split():
+        if token in STOPWORDS:
+            continue
+        tokens.append(DEMONYMS.get(token, token))
+    return set(tokens)
 
 
 @dataclass
@@ -50,6 +64,7 @@ class HeuristicGrounder:
             if len(text) >= 3:
                 aliases.append((text, entity))
         self.entity_aliases = sorted(aliases, key=lambda item: len(item[0]), reverse=True)
+        self.entity_tokens = [(entity, _tokens(entity)) for entity in self.entities]
         self.relation_tokens = [(relation, _tokens(relation)) for relation in self.relations]
 
     def link_entities(self, question: str) -> list[str]:
@@ -69,6 +84,33 @@ class HeuristicGrounder:
             if len(found) >= self.max_entities:
                 break
         return found
+
+    def ground_entity_mention(self, mention: str) -> str | None:
+        mention_norm = normalize_text(mention)
+        if not mention_norm:
+            return None
+        padded = f" {mention_norm} "
+        for alias, entity in self.entity_aliases:
+            if f" {alias} " in padded or padded.strip() == alias:
+                return entity
+
+        mention_tokens = _tokens(mention)
+        best_entity = None
+        best_score = 0.0
+        for entity, ent_tokens in self.entity_tokens:
+            if not ent_tokens:
+                continue
+            overlap = len(mention_tokens & ent_tokens)
+            if overlap == 0:
+                continue
+            score = overlap / ((len(mention_tokens) * len(ent_tokens)) ** 0.5)
+            # Prefer exact country/role disambiguation when present.
+            if mention_tokens <= ent_tokens:
+                score += 0.15
+            if score > best_score:
+                best_entity = entity
+                best_score = score
+        return best_entity
 
     def link_relation(self, question: str) -> list[str]:
         rule_relation = self._rule_relation(question)
@@ -135,6 +177,46 @@ class HeuristicGrounder:
             anchor_expression=extract_time_expression(question),
             target_slot=infer_target_slot(question, answer_type),
             metadata={"qtype": qtype, "time_level": time_level, "entity_text": [label_to_text(e) for e in entities]},
+        )
+
+    def ground_parsed_question(self, parsed: ParsedQuestion) -> ParsedQuestion:
+        grounded_entities: list[str] = []
+        for mention in parsed.entities:
+            grounded = self.ground_entity_mention(mention)
+            if grounded and grounded not in grounded_entities:
+                grounded_entities.append(grounded)
+
+        grounded_main: list[str] = []
+        for mention in parsed.main_entity_candidates:
+            grounded = self.ground_entity_mention(mention)
+            if grounded and grounded not in grounded_main:
+                grounded_main.append(grounded)
+        if not grounded_main and grounded_entities:
+            grounded_main = [grounded_entities[-1]]
+
+        relation_query = " ".join(parsed.relations) or parsed.question
+        grounded_relations = self.link_relation(relation_query)
+
+        anchor_entity = parsed.metadata.get("anchor_entity")
+        grounded_anchor = self.ground_entity_mention(anchor_entity) if anchor_entity else None
+        metadata = dict(parsed.metadata)
+        metadata["llm_entities"] = parsed.entities
+        metadata["llm_relations"] = parsed.relations
+        metadata["grounded_anchor_entity"] = grounded_anchor
+        anchor_expression = parsed.anchor_expression or extract_time_expression(parsed.question)
+        if anchor_expression is None and anchor_entity:
+            anchor_expression = extract_time_expression(str(anchor_entity))
+
+        return ParsedQuestion(
+            question=parsed.question,
+            entities=grounded_entities,
+            relations=grounded_relations,
+            main_entity_candidates=grounded_main,
+            answer_type=parsed.answer_type,
+            temporal_operator=parsed.temporal_operator,
+            anchor_expression=anchor_expression,
+            target_slot=parsed.target_slot,
+            metadata=metadata,
         )
 
 

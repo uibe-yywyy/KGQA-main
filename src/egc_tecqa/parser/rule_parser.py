@@ -4,6 +4,21 @@ import re
 
 from .intent import ParsedQuestion
 
+MONTHS = {
+    "january": "01",
+    "february": "02",
+    "march": "03",
+    "april": "04",
+    "may": "05",
+    "june": "06",
+    "july": "07",
+    "august": "08",
+    "september": "09",
+    "october": "10",
+    "november": "11",
+    "december": "12",
+}
+
 
 def infer_operator(question: str, question_type: str | None = None) -> str:
     if question_type:
@@ -30,6 +45,8 @@ def infer_operator(question: str, question_type: str | None = None) -> str:
             return "before_after"
         if "time_join" in qt:
             return "time_join"
+        if "equal_multi" in qt:
+            return "equal_multi"
         if "equal" in qt:
             return "equal"
 
@@ -52,8 +69,21 @@ def infer_operator(question: str, question_type: str | None = None) -> str:
 
 
 def extract_time_expression(question: str) -> str | None:
+    month_match = re.search(
+        r"\b("
+        + "|".join(MONTHS)
+        + r")\s+(\d{4})\b",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if month_match:
+        month, year = month_match.groups()
+        return f"{year}-{MONTHS[month.lower()]}"
+
     match = re.search(r"\b(\d{4}(?:-\d{2}(?:-\d{2})?)?)\b", question)
-    return match.group(1) if match else None
+    if match:
+        return match.group(1)
+    return None
 
 
 def make_parsed_question(
