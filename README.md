@@ -64,6 +64,18 @@ Run the same path with LLM parsing and schema grounding:
 python3 scripts/run_multitq_debug.py --split test --per-type 1 --parser llm
 ```
 
+Run the repeatable evaluation runner with parse caching and per-type metrics:
+
+```bash
+python3 scripts/evaluate_multitq.py --split test --limit 100 --parser llm
+```
+
+For quick local smoke tests without LLM calls:
+
+```bash
+python3 scripts/evaluate_multitq.py --split test --limit 10 --parser heuristic
+```
+
 Current status of this script:
 
 - loads the full MultiTQ KG;

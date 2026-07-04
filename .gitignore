@@ -10,4 +10,6 @@ data/processed/
 outputs/runs/
 outputs/tables/
 outputs/cases/
+outputs/cache/
+outputs/eval/
 !outputs/.gitkeep
