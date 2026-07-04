@@ -122,6 +122,23 @@ def _facts_for_equal_multi(parsed: ParsedQuestion, anchor_fact: Fact, facts: lis
     )
 
 
+def _facts_for_explicit_time_relative(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
+    target_time = parse_date(parsed.anchor_expression)
+    op = parsed.temporal_operator
+    if op == "before":
+        return sorted(
+            [fact for fact in facts if fact.representative_time and fact.representative_time < target_time],
+            key=_fact_time_key,
+            reverse=True,
+        )
+    if op == "after":
+        return sorted(
+            [fact for fact in facts if fact.representative_time and fact.representative_time > target_time],
+            key=_fact_time_key,
+        )
+    return facts
+
+
 def _rank_direct_facts(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
     entities = set(parsed.entities + parsed.main_entity_candidates)
     reverse_time = parsed.temporal_operator in {"last", "before_last"}
@@ -191,7 +208,9 @@ def build_simple_connected_chains(
         return []
 
     pivot_set = set(parsed.main_entity_candidates)
-    if _is_relative_operator(parsed):
+    if _is_relative_operator(parsed) and parsed.anchor_expression and not parsed.metadata.get("grounded_anchor_entity"):
+        relevant = _trim_for_connectivity(_facts_for_explicit_time_relative(parsed, relevant), pivot_set, max_facts)
+    elif _is_relative_operator(parsed):
         anchor_fact = _choose_anchor_fact(parsed, relevant)
         around_anchor = _facts_around_anchor(parsed, anchor_fact, relevant)
         relevant = [anchor_fact] + _trim_for_connectivity(around_anchor, pivot_set, max_facts - 1)
@@ -203,9 +222,13 @@ def build_simple_connected_chains(
         focused = _focus_direct_facts(parsed, relevant)
         relevant = _trim_for_connectivity(_rank_direct_facts(parsed, focused), pivot_set, max_facts)
 
+    if not relevant:
+        return []
+
     anchor_fact = relevant[0]
     ordered = relevant[:max_facts]
     roles = ["anchor_fact"] + ["context_fact"] * (len(ordered) - 1)
+    anchor_facts = [anchor_fact] if not (parsed.anchor_expression and _is_relative_operator(parsed)) else []
 
     return [
         EvidenceChain(
@@ -213,7 +236,7 @@ def build_simple_connected_chains(
             facts=ordered,
             roles=roles,
             operator=parsed.temporal_operator,
-            anchor_facts=[anchor_fact],
+            anchor_facts=anchor_facts,
             bridge_entities=bridge_entities(ordered),
             answer_slot=parsed.target_slot,
         )

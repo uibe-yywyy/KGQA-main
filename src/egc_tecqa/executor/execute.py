@@ -44,9 +44,9 @@ def execute_chain(parsed: ParsedQuestion, chain: EvidenceChain) -> EvidenceChain
     selected: list[Fact]
 
     if op == "after":
-        selected = first(after(chain.anchor_facts[0], facts[1:]))
+        selected = facts[:1] if not chain.anchor_facts and parsed.anchor_expression else first(after(chain.anchor_facts[0], facts[1:]))
     elif op == "before":
-        selected = last(before(chain.anchor_facts[0], facts[1:]))
+        selected = facts[:1] if not chain.anchor_facts and parsed.anchor_expression else last(before(chain.anchor_facts[0], facts[1:]))
     elif op == "first":
         selected = first(facts)
     elif op == "last":

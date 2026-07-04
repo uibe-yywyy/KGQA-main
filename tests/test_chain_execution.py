@@ -3,6 +3,7 @@ import unittest
 from egc_tecqa.chain.search import build_simple_connected_chains
 from egc_tecqa.executor.execute import execute_chain
 from egc_tecqa.kg.fact import Fact
+from egc_tecqa.parser.heuristic_grounding import HeuristicGrounder
 from egc_tecqa.parser.intent import ParsedQuestion
 from egc_tecqa.parser.rule_parser import extract_time_expression
 
@@ -12,6 +13,41 @@ class ChainExecutionTest(unittest.TestCase):
         self.assertEqual(
             extract_time_expression("Who signed an agreement with China in April 2005?"),
             "2005-04",
+        )
+        self.assertEqual(
+            extract_time_expression("Who visited Malaysia on 14 January 2007?"),
+            "2007-01-14",
+        )
+
+    def test_grounding_relation_and_demonym_repairs(self):
+        grounder = HeuristicGrounder(
+            entities=["Criminal_(Africa)", "Criminal_(Somalia)", "China"],
+            relations=[
+                "Make_optimistic_comment",
+                "Praise_or_endorse",
+                "Criticize_or_denounce",
+                "Use_conventional_military_force",
+            ],
+        )
+
+        self.assertEqual(grounder.ground_entity_mention("Somali criminal"), "Criminal_(Somalia)")
+        self.assertEqual(grounder.link_relation("expressed optimism about"), ["Make_optimistic_comment"])
+        self.assertEqual(grounder.link_relation("praised"), ["Praise_or_endorse"])
+        self.assertEqual(grounder.link_relation("condemned"), ["Criticize_or_denounce"])
+        self.assertEqual(
+            grounder.link_relation("made Burundi suffer from conventional military forces"),
+            ["Use_conventional_military_force"],
+        )
+
+    def test_grounding_prefers_specific_role_entity(self):
+        grounder = HeuristicGrounder(
+            entities=["Kazakhstan", "Cabinet_/_Council_of_Ministers_/_Advisors_(Kazakhstan)"],
+            relations=[],
+        )
+
+        self.assertEqual(
+            grounder.ground_entity_mention("Cabinet Council of Ministers of Kazakhstan"),
+            "Cabinet_/_Council_of_Ministers_/_Advisors_(Kazakhstan)",
         )
 
     def test_relative_anchor_prefers_fact_connected_to_main_entity(self):

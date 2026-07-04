@@ -39,6 +39,27 @@ DEMONYMS = {
     "iraqi": "iraq",
     "chinese": "china",
     "ethiopian": "ethiopia",
+    "somali": "somalia",
+    "burundian": "burundi",
+}
+
+ROLE_TOKENS = {
+    "advisor",
+    "advisors",
+    "cabinet",
+    "council",
+    "department",
+    "force",
+    "forces",
+    "government",
+    "minister",
+    "ministers",
+    "ministry",
+    "military",
+    "party",
+    "president",
+    "prime",
+    "security",
 }
 
 
@@ -89,12 +110,14 @@ class HeuristicGrounder:
         mention_norm = normalize_text(mention)
         if not mention_norm:
             return None
+        mention_tokens = _tokens(mention)
         padded = f" {mention_norm} "
         for alias, entity in self.entity_aliases:
+            if len(alias.split()) == 1 and len(mention_tokens) > 2 and (mention_tokens & ROLE_TOKENS):
+                continue
             if f" {alias} " in padded or padded.strip() == alias:
                 return entity
 
-        mention_tokens = _tokens(mention)
         best_entity = None
         best_score = 0.0
         for entity, ent_tokens in self.entity_tokens:
@@ -107,6 +130,11 @@ class HeuristicGrounder:
             # Prefer exact country/role disambiguation when present.
             if mention_tokens <= ent_tokens:
                 score += 0.15
+            role_overlap = len((mention_tokens & ROLE_TOKENS) & ent_tokens)
+            if role_overlap:
+                score += 0.4 * role_overlap
+            if len(mention_tokens) > 2 and len(ent_tokens) == 1:
+                score -= 0.4
             if score > best_score:
                 best_entity = entity
                 best_score = score
@@ -146,8 +174,19 @@ class HeuristicGrounder:
             (("meet",), "Express_intent_to_meet_or_negotiate"),
             (("cooperation",), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
             (("cooperate",), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
+            (("cooperating",), "Express_intent_to_engage_in_diplomatic_cooperation_(such_as_policy_support)"),
+            (("optimism",), "Make_optimistic_comment"),
+            (("optimistic",), "Make_optimistic_comment"),
+            (("praise",), "Praise_or_endorse"),
+            (("praised",), "Praise_or_endorse"),
+            (("condemn",), "Criticize_or_denounce"),
+            (("condemned",), "Criticize_or_denounce"),
+            (("criticize",), "Criticize_or_denounce"),
+            (("denounce",), "Criticize_or_denounce"),
             (("threaten",), "Threaten"),
+            (("threatened",), "Threaten"),
             (("conventional", "military"), "Use_conventional_military_force"),
+            (("made", "suffer"), "Use_conventional_military_force"),
             (("small", "arms"), "fight_with_small_arms_and_light_weapons"),
             (("statement",), "Make_statement"),
         ]
@@ -194,11 +233,15 @@ class HeuristicGrounder:
         if not grounded_main and grounded_entities:
             grounded_main = [grounded_entities[-1]]
 
-        relation_query = " ".join(parsed.relations) or parsed.question
+        relation_query = " ".join(parsed.relations + [parsed.question])
         grounded_relations = self.link_relation(relation_query)
 
         anchor_entity = parsed.metadata.get("anchor_entity")
         grounded_anchor = self.ground_entity_mention(anchor_entity) if anchor_entity else None
+        if grounded_anchor and grounded_main == [grounded_anchor]:
+            non_anchor_entities = [entity for entity in grounded_entities if entity != grounded_anchor]
+            if non_anchor_entities:
+                grounded_main = [non_anchor_entities[-1]]
         metadata = dict(parsed.metadata)
         metadata["llm_entities"] = parsed.entities
         metadata["llm_relations"] = parsed.relations

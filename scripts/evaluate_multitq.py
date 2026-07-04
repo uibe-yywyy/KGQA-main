@@ -65,6 +65,31 @@ def append_parse_cache(path: Path, cache_key: str, parsed: ParsedQuestion) -> No
         handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
 
 
+def reground_cached_llm_parse(parsed: ParsedQuestion, grounder: HeuristicGrounder) -> ParsedQuestion:
+    metadata = dict(parsed.metadata)
+    llm_raw = metadata.get("llm_raw")
+    if not llm_raw:
+        return parsed
+
+    raw_parsed = ParsedQuestion(
+        question=parsed.question,
+        entities=[str(x) for x in metadata.get("llm_entities", parsed.entities)],
+        relations=[str(x) for x in metadata.get("llm_relations", parsed.relations)],
+        main_entity_candidates=[str(llm_raw["main_entity"])] if llm_raw.get("main_entity") else [],
+        answer_type=parsed.answer_type,
+        temporal_operator=parsed.temporal_operator,
+        anchor_expression=None,
+        target_slot=parsed.target_slot,
+        metadata={
+            "qtype": metadata.get("qtype"),
+            "time_level": metadata.get("time_level"),
+            "anchor_entity": metadata.get("anchor_entity"),
+            "llm_raw": llm_raw,
+        },
+    )
+    return grounder.ground_parsed_question(raw_parsed)
+
+
 def choose_examples(args: argparse.Namespace, root: Path) -> list[QuestionExample]:
     examples = load_multitq_questions(root, args.split)
     if args.per_type is not None:
@@ -84,6 +109,8 @@ def parse_example(
 ) -> ParsedQuestion:
     cache_key = f"{args.parser}:{args.split}:{example.quid}"
     if cache_key in cache:
+        if args.parser == "llm":
+            return reground_cached_llm_parse(cache[cache_key], grounder)
         return cache[cache_key]
 
     if llm_parser is not None:

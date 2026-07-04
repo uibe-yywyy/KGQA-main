@@ -69,6 +69,17 @@ def infer_operator(question: str, question_type: str | None = None) -> str:
 
 
 def extract_time_expression(question: str) -> str | None:
+    day_month_match = re.search(
+        r"\b(\d{1,2})\s+("
+        + "|".join(MONTHS)
+        + r")\s+(\d{4})\b",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if day_month_match:
+        day, month, year = day_month_match.groups()
+        return f"{year}-{MONTHS[month.lower()]}-{int(day):02d}"
+
     month_match = re.search(
         r"\b("
         + "|".join(MONTHS)
