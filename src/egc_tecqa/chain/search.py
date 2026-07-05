@@ -124,19 +124,40 @@ def _facts_for_equal_multi(parsed: ParsedQuestion, anchor_fact: Fact, facts: lis
 
 def _facts_for_explicit_time_relative(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
     target_time = parse_date(parsed.anchor_expression)
+    granularity = parsed.metadata.get("time_level")
     op = parsed.temporal_operator
     if op == "before":
         return sorted(
-            [fact for fact in facts if fact.representative_time and fact.representative_time < target_time],
+            [fact for fact in facts if _is_before_granular(fact.representative_time, target_time, granularity)],
             key=_fact_time_key,
             reverse=True,
         )
     if op == "after":
         return sorted(
-            [fact for fact in facts if fact.representative_time and fact.representative_time > target_time],
+            [fact for fact in facts if _is_after_granular(fact.representative_time, target_time, granularity)],
             key=_fact_time_key,
         )
     return facts
+
+
+def _is_before_granular(value: date | None, target: date | None, granularity: str | None) -> bool:
+    if value is None or target is None:
+        return False
+    if granularity == "year":
+        return value.year < target.year
+    if granularity == "month":
+        return (value.year, value.month) < (target.year, target.month)
+    return value < target
+
+
+def _is_after_granular(value: date | None, target: date | None, granularity: str | None) -> bool:
+    if value is None or target is None:
+        return False
+    if granularity == "year":
+        return value.year > target.year
+    if granularity == "month":
+        return (value.year, value.month) > (target.year, target.month)
+    return value > target
 
 
 def _rank_direct_facts(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:

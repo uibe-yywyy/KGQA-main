@@ -52,6 +52,7 @@ ROLE_TOKENS = {
     "force",
     "forces",
     "government",
+    "insurgency",
     "minister",
     "ministers",
     "ministry",
@@ -60,6 +61,16 @@ ROLE_TOKENS = {
     "president",
     "prime",
     "security",
+}
+
+GENERIC_GEO_SUFFIXES = {
+    "Africa",
+    "Asia",
+    "Europe",
+    "International",
+    "Middle_East",
+    "Non-Governmental_Organizations",
+    "World",
 }
 
 
@@ -82,6 +93,7 @@ class HeuristicGrounder:
     max_entities: int = 4
 
     def __post_init__(self) -> None:
+        self.entity_set = set(self.entities)
         aliases = []
         for entity in self.entities:
             text = normalize_text(entity)
@@ -90,6 +102,49 @@ class HeuristicGrounder:
         self.entity_aliases = sorted(aliases, key=lambda item: len(item[0]), reverse=True)
         self.entity_tokens = [(entity, _tokens(entity)) for entity in self.entities]
         self.relation_tokens = [(relation, _tokens(relation)) for relation in self.relations]
+
+    @staticmethod
+    def _split_role_entity(entity: str) -> tuple[str, str] | None:
+        match = re.match(r"^(.+)_\((.+)\)$", entity)
+        if not match:
+            return None
+        return match.group(1), match.group(2)
+
+    def _contextualize_group_entities(self, grounded_entities: list[str]) -> list[str]:
+        """Compose generic group mentions with nearby country/region context.
+
+        LLM parses often split "Muslims in the United Kingdom" into two mentions:
+        "Muslims" and "United Kingdom". Grounding them independently can produce
+        Muslim_(Africa) + Actor_(United_Kingdom). If the KG contains the composed
+        entity Muslim_(United_Kingdom), prefer it. This is a schema-level repair,
+        not a qid-specific override.
+        """
+
+        context_suffixes: list[str] = []
+        for entity in grounded_entities:
+            split = self._split_role_entity(entity)
+            if split:
+                _, suffix = split
+                if suffix not in GENERIC_GEO_SUFFIXES and suffix not in context_suffixes:
+                    context_suffixes.append(suffix)
+            elif entity not in context_suffixes:
+                context_suffixes.append(entity)
+
+        contextualized: list[str] = []
+        for entity in grounded_entities:
+            replacement = entity
+            split = self._split_role_entity(entity)
+            if split:
+                prefix, suffix = split
+                if suffix in GENERIC_GEO_SUFFIXES:
+                    for context_suffix in context_suffixes:
+                        candidate = f"{prefix}_({context_suffix})"
+                        if candidate in self.entity_set:
+                            replacement = candidate
+                            break
+            if replacement not in contextualized:
+                contextualized.append(replacement)
+        return contextualized
 
     def link_entities(self, question: str) -> list[str]:
         qnorm = f" {normalize_text(question)} "
@@ -117,6 +172,9 @@ class HeuristicGrounder:
         padded = f" {mention_norm} "
         for alias, entity in self.entity_aliases:
             if len(alias.split()) == 1 and len(mention_tokens) > 2 and (mention_tokens & ROLE_TOKENS):
+                continue
+            alias_tokens = _tokens(alias)
+            if mention_tokens & ROLE_TOKENS and not (alias_tokens & ROLE_TOKENS) and alias != mention_norm:
                 continue
             if f" {alias} " in padded or padded.strip() == alias:
                 return entity
@@ -225,9 +283,12 @@ class HeuristicGrounder:
     def ground_parsed_question(self, parsed: ParsedQuestion) -> ParsedQuestion:
         grounded_entities: list[str] = []
         for mention in parsed.entities:
+            if extract_time_expression(str(mention)):
+                continue
             grounded = self.ground_entity_mention(mention)
             if grounded and grounded not in grounded_entities:
                 grounded_entities.append(grounded)
+        grounded_entities = self._contextualize_group_entities(grounded_entities)
 
         grounded_main: list[str] = []
         for mention in parsed.main_entity_candidates:
@@ -240,8 +301,14 @@ class HeuristicGrounder:
         relation_query = " ".join(parsed.relations + [parsed.question])
         grounded_relations = self.link_relation(relation_query)
 
+        anchor_expression = parsed.anchor_expression or extract_time_expression(parsed.question)
         anchor_entity = parsed.metadata.get("anchor_entity")
-        grounded_anchor = self.ground_entity_mention(anchor_entity) if anchor_entity else None
+        anchor_entity_is_time = bool(anchor_entity and extract_time_expression(str(anchor_entity)))
+        grounded_anchor = (
+            self.ground_entity_mention(anchor_entity)
+            if anchor_entity and not anchor_entity_is_time
+            else None
+        )
         if grounded_anchor and grounded_main == [grounded_anchor]:
             non_anchor_entities = [entity for entity in grounded_entities if entity != grounded_anchor]
             if non_anchor_entities:
@@ -250,7 +317,6 @@ class HeuristicGrounder:
         metadata["llm_entities"] = parsed.entities
         metadata["llm_relations"] = parsed.relations
         metadata["grounded_anchor_entity"] = grounded_anchor
-        anchor_expression = parsed.anchor_expression or extract_time_expression(parsed.question)
         if anchor_expression is None and anchor_entity:
             anchor_expression = extract_time_expression(str(anchor_entity))
 

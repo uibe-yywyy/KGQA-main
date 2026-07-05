@@ -20,6 +20,14 @@ class ChainExecutionTest(unittest.TestCase):
             extract_time_expression("Who visited Malaysia on 14 January 2007?"),
             "2007-01-14",
         )
+        self.assertEqual(
+            extract_time_expression("Who visited after Jun, 2011?"),
+            "2011-06",
+        )
+        self.assertEqual(
+            extract_time_expression("Who visited before 2012-06-8?"),
+            "2012-06-08",
+        )
 
     def test_grounding_relation_and_demonym_repairs(self):
         grounder = HeuristicGrounder(
@@ -51,10 +59,12 @@ class ChainExecutionTest(unittest.TestCase):
     def test_grounding_prefers_specific_role_entity(self):
         grounder = HeuristicGrounder(
             entities=[
+                "Al-Shabaab",
                 "Business_(Belgium)",
                 "Cabinet_/_Council_of_Ministers_/_Advisors_(Kazakhstan)",
                 "Citizen_(Belgium)",
                 "Citizen_(Norway)",
+                "Insurgency_(Al-Shabaab)",
                 "Kazakhstan",
             ],
             relations=[],
@@ -66,6 +76,54 @@ class ChainExecutionTest(unittest.TestCase):
         )
         self.assertEqual(grounder.ground_entity_mention("citizens of Belgium"), "Citizen_(Belgium)")
         self.assertEqual(grounder.ground_entity_mention("citizens of Norway"), "Citizen_(Norway)")
+        self.assertEqual(grounder.ground_entity_mention("al-Shabaab insurgency"), "Insurgency_(Al-Shabaab)")
+
+    def test_grounding_composes_group_with_country_context(self):
+        grounder = HeuristicGrounder(
+            entities=[
+                "Actor_(United_Kingdom)",
+                "Muslim_(Africa)",
+                "Muslim_(United_Kingdom)",
+            ],
+            relations=["Use_unconventional_violence"],
+        )
+        parsed = ParsedQuestion(
+            question="When did the al-Shabaab insurgency use unconventional violence against Muslims in the United Kingdom?",
+            entities=["Muslims", "United Kingdom"],
+            relations=["use unconventional violence"],
+            main_entity_candidates=[],
+            answer_type="time",
+            temporal_operator="equal",
+            target_slot="time",
+        )
+
+        grounded = grounder.ground_parsed_question(parsed)
+
+        self.assertIn("Muslim_(United_Kingdom)", grounded.entities)
+        self.assertNotIn("Muslim_(Africa)", grounded.entities)
+
+    def test_grounding_skips_time_mentions(self):
+        grounder = HeuristicGrounder(
+            entities=["Federica_Mogherini", "Theresa_May", "Wang_Jun"],
+            relations=["Express_intent_to_meet_or_negotiate"],
+        )
+        parsed = ParsedQuestion(
+            question="With whom did Federica Mogherini announce her intention to negotiate after 7 May 2015?",
+            entities=["Federica Mogherini", "7 May 2015"],
+            relations=["announce intention to negotiate"],
+            main_entity_candidates=["Federica Mogherini"],
+            answer_type="entity",
+            temporal_operator="after",
+            anchor_expression=None,
+            target_slot="object",
+            metadata={"anchor_entity": "7 May 2015"},
+        )
+
+        grounded = grounder.ground_parsed_question(parsed)
+
+        self.assertEqual(grounded.entities, ["Federica_Mogherini"])
+        self.assertEqual(grounded.metadata["grounded_anchor_entity"], None)
+        self.assertEqual(grounded.anchor_expression, "2015-05-07")
 
     def test_relative_anchor_prefers_fact_connected_to_main_entity(self):
         facts = [
@@ -111,6 +169,29 @@ class ChainExecutionTest(unittest.TestCase):
         executed = execute_chain(parsed, chain)
 
         self.assertEqual(executed.execution_result[:2], ["Barnaby_Joyce", "Vietnam"])
+
+    def test_explicit_relative_time_respects_granularity(self):
+        facts = [
+            Fact.from_values("1", "Yang_Hyong_Sop", "Make_a_visit", "Norodom_Sihanouk", "2006-05-10"),
+            Fact.from_values("2", "Yang_Hyong_Sop", "Make_a_visit", "China", "2006-07-11"),
+            Fact.from_values("3", "Yang_Hyong_Sop", "Make_a_visit", "Angola", "2008-03-21"),
+            Fact.from_values("4", "Yang_Hyong_Sop", "Make_a_visit", "Cambodia", "2012-10-20"),
+        ]
+        parsed = ParsedQuestion(
+            question="Which country received the visit from Yang Hyong Sop after 2006?",
+            entities=["Yang_Hyong_Sop"],
+            relations=["Make_a_visit"],
+            main_entity_candidates=["Yang_Hyong_Sop"],
+            temporal_operator="after",
+            anchor_expression="2006",
+            target_slot="object",
+            metadata={"time_level": "year"},
+        )
+
+        chain = build_simple_connected_chains(parsed, facts, max_facts=4)[0]
+        executed = execute_chain(parsed, chain)
+
+        self.assertEqual(executed.execution_result, ["Angola"])
 
     def test_verifier_supports_year_and_month_time_answers(self):
         fact = Fact.from_values("1", "Citizen_(Belgium)", "Sign_formal_agreement", "China", "2005-06-10")

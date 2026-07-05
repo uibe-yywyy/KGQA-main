@@ -6,17 +6,29 @@ from .intent import ParsedQuestion
 
 MONTHS = {
     "january": "01",
+    "jan": "01",
     "february": "02",
+    "feb": "02",
     "march": "03",
+    "mar": "03",
     "april": "04",
+    "apr": "04",
     "may": "05",
     "june": "06",
+    "jun": "06",
     "july": "07",
+    "jul": "07",
     "august": "08",
+    "aug": "08",
     "september": "09",
+    "sep": "09",
+    "sept": "09",
     "october": "10",
+    "oct": "10",
     "november": "11",
+    "nov": "11",
     "december": "12",
+    "dec": "12",
 }
 
 
@@ -83,7 +95,7 @@ def extract_time_expression(question: str) -> str | None:
     month_match = re.search(
         r"\b("
         + "|".join(MONTHS)
-        + r")\s+(\d{4})\b",
+        + r")[,\s]+(\d{4})\b",
         question,
         flags=re.IGNORECASE,
     )
@@ -91,9 +103,14 @@ def extract_time_expression(question: str) -> str | None:
         month, year = month_match.groups()
         return f"{year}-{MONTHS[month.lower()]}"
 
-    match = re.search(r"\b(\d{4}(?:-\d{2}(?:-\d{2})?)?)\b", question)
+    match = re.search(r"\b(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?\b", question)
     if match:
-        return match.group(1)
+        year, month, day = match.groups()
+        if day:
+            return f"{year}-{int(month):02d}-{int(day):02d}"
+        if month:
+            return f"{year}-{int(month):02d}"
+        return year
     return None
 
 
