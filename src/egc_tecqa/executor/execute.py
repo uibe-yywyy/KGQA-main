@@ -34,6 +34,28 @@ def _answer_from_fact(
     return fact.subject
 
 
+def _filter_answer_direction(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
+    """Keep facts whose subject/object side is compatible with the answer slot.
+
+    The KG often contains mirrored or semantically nearby facts. For questions
+    like "Which country praised Iran?", the answer is the fact subject and the
+    main entity should be on the object side. Without this filter, a later fact
+    such as Iran -> Praise -> Japan can incorrectly produce Japan as a supported
+    but wrong answer.
+    """
+
+    main_entities = set(parsed.main_entity_candidates)
+    if not main_entities or parsed.target_slot == "time":
+        return facts
+    if parsed.target_slot == "subject":
+        filtered = [fact for fact in facts if fact.subject not in main_entities]
+        return filtered or facts
+    if parsed.target_slot == "object":
+        filtered = [fact for fact in facts if fact.object not in main_entities]
+        return filtered or facts
+    return facts
+
+
 def execute_chain(parsed: ParsedQuestion, chain: EvidenceChain) -> EvidenceChain:
     facts = chain.facts
     if not facts:
@@ -44,22 +66,40 @@ def execute_chain(parsed: ParsedQuestion, chain: EvidenceChain) -> EvidenceChain
     selected: list[Fact]
 
     if op == "after":
-        selected = facts[:1] if not chain.anchor_facts and parsed.anchor_expression else first(after(chain.anchor_facts[0], facts[1:]))
+        selected = (
+            _filter_answer_direction(parsed, facts[:1])
+            if not chain.anchor_facts and parsed.anchor_expression
+            else first(_filter_answer_direction(parsed, after(chain.anchor_facts[0], facts[1:])))
+        )
     elif op == "before":
-        selected = facts[:1] if not chain.anchor_facts and parsed.anchor_expression else last(before(chain.anchor_facts[0], facts[1:]))
+        selected = (
+            _filter_answer_direction(parsed, facts[:1])
+            if not chain.anchor_facts and parsed.anchor_expression
+            else last(_filter_answer_direction(parsed, before(chain.anchor_facts[0], facts[1:])))
+        )
     elif op == "first":
-        selected = first(facts)
+        scope = equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level"))
+        scope = _filter_answer_direction(parsed, scope)
+        selected = first(scope)
     elif op == "last":
-        selected = last(facts)
+        scope = equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level"))
+        scope = _filter_answer_direction(parsed, scope)
+        selected = last(scope)
     elif op == "after_first":
-        selected = first(after(chain.anchor_facts[0], facts[1:]))
+        selected = first(_filter_answer_direction(parsed, after(chain.anchor_facts[0], facts[1:])))
     elif op == "before_last":
-        selected = last(before(chain.anchor_facts[0], facts[1:]))
+        selected = last(_filter_answer_direction(parsed, before(chain.anchor_facts[0], facts[1:])))
     elif op == "equal":
-        selected = equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level"))
+        selected = _filter_answer_direction(
+            parsed,
+            equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level")),
+        )
     elif op == "equal_multi":
         anchor_time = chain.anchor_facts[0].representative_time if chain.anchor_facts else None
-        selected = equal_time(anchor_time, facts[1:], parsed.metadata.get("time_level"))
+        selected = _filter_answer_direction(
+            parsed,
+            equal_time(anchor_time, facts[1:], parsed.metadata.get("time_level")),
+        )
     else:
         selected = facts[:1]
 

@@ -168,7 +168,7 @@ class ChainExecutionTest(unittest.TestCase):
         chain = build_simple_connected_chains(parsed, facts, max_facts=4)[0]
         executed = execute_chain(parsed, chain)
 
-        self.assertEqual(executed.execution_result[:2], ["Barnaby_Joyce", "Vietnam"])
+        self.assertEqual(executed.execution_result, ["Barnaby_Joyce"])
 
     def test_explicit_relative_time_respects_granularity(self):
         facts = [
@@ -192,6 +192,70 @@ class ChainExecutionTest(unittest.TestCase):
         executed = execute_chain(parsed, chain)
 
         self.assertEqual(executed.execution_result, ["Angola"])
+
+    def test_first_with_explicit_year_filters_scope_before_selecting(self):
+        facts = [
+            Fact.from_values("1", "South_Africa", "Make_a_visit", "Angola", "2010-05-01"),
+            Fact.from_values("2", "Foreign_Affairs_(Namibia)", "Make_a_visit", "Angola", "2011-01-03"),
+            Fact.from_values("3", "Yang_Hyong_Sop", "Make_a_visit", "Angola", "2011-07-12"),
+        ]
+        parsed = ParsedQuestion(
+            question="Who was the first to visit Angola in 2011?",
+            entities=["Angola"],
+            relations=["Make_a_visit"],
+            main_entity_candidates=["Angola"],
+            temporal_operator="first",
+            anchor_expression="2011",
+            target_slot="subject",
+            metadata={"time_level": "year"},
+        )
+        chain = EvidenceChain(chain_id="c", facts=facts, roles=["context_fact"] * len(facts), operator="first")
+
+        executed = execute_chain(parsed, chain)
+
+        self.assertEqual(executed.execution_result, ["Foreign_Affairs_(Namibia)"])
+
+    def test_subject_answer_direction_excludes_main_as_subject(self):
+        facts = [
+            Fact.from_values("1", "Iran", "Praise_or_endorse", "Japan", "2009-12-29"),
+            Fact.from_values("2", "Vietnam", "Praise_or_endorse", "Iran", "2009-12-24"),
+        ]
+        parsed = ParsedQuestion(
+            question="Which country last praised Iran in 2009?",
+            entities=["Iran"],
+            relations=["Praise_or_endorse"],
+            main_entity_candidates=["Iran"],
+            temporal_operator="last",
+            anchor_expression="2009",
+            target_slot="subject",
+            metadata={"time_level": "year"},
+        )
+        chain = EvidenceChain(chain_id="c", facts=facts, roles=["context_fact"] * len(facts), operator="last")
+
+        executed = execute_chain(parsed, chain)
+
+        self.assertEqual(executed.execution_result, ["Vietnam"])
+
+    def test_object_answer_direction_excludes_main_as_object(self):
+        facts = [
+            Fact.from_values("1", "Japan", "Express_intent_to_meet_or_negotiate", "France", "2005-04-01"),
+            Fact.from_values("2", "France", "Express_intent_to_meet_or_negotiate", "United_Arab_Emirates", "2013-02-01"),
+        ]
+        parsed = ParsedQuestion(
+            question="With which country did France negotiate for the first time in 2013?",
+            entities=["France"],
+            relations=["Express_intent_to_meet_or_negotiate"],
+            main_entity_candidates=["France"],
+            temporal_operator="first",
+            anchor_expression="2013",
+            target_slot="object",
+            metadata={"time_level": "year"},
+        )
+        chain = EvidenceChain(chain_id="c", facts=facts, roles=["context_fact"] * len(facts), operator="first")
+
+        executed = execute_chain(parsed, chain)
+
+        self.assertEqual(executed.execution_result, ["United_Arab_Emirates"])
 
     def test_verifier_supports_year_and_month_time_answers(self):
         fact = Fact.from_values("1", "Citizen_(Belgium)", "Sign_formal_agreement", "China", "2005-06-10")
