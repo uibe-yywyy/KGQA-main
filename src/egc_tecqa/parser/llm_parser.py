@@ -70,7 +70,7 @@ class LLMQuestionParser:
         entities = [str(x) for x in data.get("entities", []) if str(x).strip()]
         main_entity = data.get("main_entity") or (entities[-1] if entities else "")
         relation_phrase = data.get("relation_phrase") or ""
-        operator = data.get("temporal_operator") or infer_operator(question, qtype)
+        operator = canonicalize_operator(question, qtype, data.get("temporal_operator"))
         target_slot = data.get("target_slot") or ("time" if answer_type == "time" else "subject")
         parsed_answer_type = data.get("answer_type") or answer_type
         return ParsedQuestion(
@@ -90,3 +90,17 @@ class LLMQuestionParser:
             },
         )
 
+
+def canonicalize_operator(question: str, qtype: str, llm_operator: str | None) -> str:
+    """Prefer benchmark-level temporal form when the wording is unambiguous."""
+
+    operator = llm_operator or infer_operator(question, qtype)
+    qt = qtype.lower().replace("/", "_").replace(" ", "_")
+    q = question.lower()
+    if "equal_multi" in qt:
+        if "same" in q:
+            return "equal_multi"
+        inferred_from_question = infer_operator(question, None)
+        if inferred_from_question in {"first", "last"}:
+            return inferred_from_question
+    return operator

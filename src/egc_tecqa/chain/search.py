@@ -248,7 +248,12 @@ def build_simple_connected_chains(
 
     anchor_fact = relevant[0]
     ordered = relevant[:max_facts]
-    roles = ["anchor_fact"] + ["context_fact"] * (len(ordered) - 1)
+    if parsed.temporal_operator == "equal_multi":
+        roles = ["anchor_fact"] + ["target_fact"] * (len(ordered) - 1)
+    elif _is_relative_operator(parsed):
+        roles = ["anchor_fact"] + ["target_fact"] * (len(ordered) - 1)
+    else:
+        roles = ["answer_fact"] + ["context_fact"] * (len(ordered) - 1)
     anchor_facts = [anchor_fact] if not (parsed.anchor_expression and _is_relative_operator(parsed)) else []
 
     return [

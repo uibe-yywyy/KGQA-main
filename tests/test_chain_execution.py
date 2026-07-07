@@ -7,6 +7,7 @@ from egc_tecqa.executor.verifier import verify_chain
 from egc_tecqa.kg.fact import Fact
 from egc_tecqa.parser.heuristic_grounding import HeuristicGrounder
 from egc_tecqa.parser.intent import ParsedQuestion
+from egc_tecqa.parser.llm_parser import canonicalize_operator
 from egc_tecqa.parser.rule_parser import extract_time_expression
 
 
@@ -27,6 +28,24 @@ class ChainExecutionTest(unittest.TestCase):
         self.assertEqual(
             extract_time_expression("Who visited before 2012-06-8?"),
             "2012-06-08",
+        )
+
+    def test_same_time_equal_multi_operator_canonicalization(self):
+        self.assertEqual(
+            canonicalize_operator(
+                "Who requested a meeting with Angela Merkel in the same year as Valdas Adamkus?",
+                "equal_multi",
+                "equal",
+            ),
+            "equal_multi",
+        )
+        self.assertEqual(
+            canonicalize_operator("Who was the first to visit Angola in 2011?", "equal_multi", "first"),
+            "first",
+        )
+        self.assertEqual(
+            canonicalize_operator("Who was the first to visit Angola in 2011?", "equal_multi", "equal_multi"),
+            "first",
         )
 
     def test_grounding_relation_and_demonym_repairs(self):
@@ -168,6 +187,7 @@ class ChainExecutionTest(unittest.TestCase):
         chain = build_simple_connected_chains(parsed, facts, max_facts=4)[0]
         executed = execute_chain(parsed, chain)
 
+        self.assertEqual(chain.roles[:3], ["anchor_fact", "target_fact", "target_fact"])
         self.assertEqual(executed.execution_result, ["Barnaby_Joyce"])
 
     def test_explicit_relative_time_respects_granularity(self):

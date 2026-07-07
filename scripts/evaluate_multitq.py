@@ -26,7 +26,7 @@ from egc_tecqa.kg.indexes import TemporalKG
 from egc_tecqa.parser.heuristic_grounding import HeuristicGrounder
 from egc_tecqa.parser.intent import ParsedQuestion
 from egc_tecqa.parser.llm_client import LLMConfig, OpenAICompatibleClient
-from egc_tecqa.parser.llm_parser import LLMQuestionParser
+from egc_tecqa.parser.llm_parser import LLMQuestionParser, canonicalize_operator
 from egc_tecqa.retrieval.structure_guided import retrieve_structure_guided
 
 
@@ -77,7 +77,11 @@ def reground_cached_llm_parse(parsed: ParsedQuestion, grounder: HeuristicGrounde
         relations=[str(x) for x in metadata.get("llm_relations", parsed.relations)],
         main_entity_candidates=[str(llm_raw["main_entity"])] if llm_raw.get("main_entity") else [],
         answer_type=parsed.answer_type,
-        temporal_operator=parsed.temporal_operator,
+        temporal_operator=canonicalize_operator(
+            parsed.question,
+            str(metadata.get("qtype") or ""),
+            parsed.temporal_operator,
+        ),
         anchor_expression=None,
         target_slot=parsed.target_slot,
         metadata={
