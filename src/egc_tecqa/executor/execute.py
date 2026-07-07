@@ -4,7 +4,55 @@ from egc_tecqa.chain.model import EvidenceChain
 from egc_tecqa.kg.fact import Fact
 from egc_tecqa.parser.intent import ParsedQuestion
 
-from .temporal_ops import after, before, equal_time, first, last
+from .temporal_ops import after, before, equal_time, fact_time
+
+
+COUNTRY_OR_REGION_NAMES = {
+    "Afghanistan",
+    "Angola",
+    "Argentina",
+    "Australia",
+    "Austria",
+    "Bahrain",
+    "Belgium",
+    "Bolivia",
+    "Brazil",
+    "Cambodia",
+    "Canada",
+    "China",
+    "Colombia",
+    "Cyprus",
+    "Denmark",
+    "Eritrea",
+    "Ethiopia",
+    "France",
+    "Germany",
+    "India",
+    "Iran",
+    "Iraq",
+    "Japan",
+    "Kazakhstan",
+    "Kenya",
+    "Kuwait",
+    "Malaysia",
+    "Mexico",
+    "Middle_East",
+    "Nigeria",
+    "Pakistan",
+    "Philippines",
+    "Qatar",
+    "Russia",
+    "Saudi_Arabia",
+    "Somalia",
+    "South_Africa",
+    "South_Korea",
+    "Sudan",
+    "Togo",
+    "United_Arab_Emirates",
+    "United_Kingdom",
+    "United_States",
+    "Vietnam",
+}
 
 
 def _format_time(value: str, granularity: str | None) -> str:
@@ -32,6 +80,67 @@ def _answer_from_fact(
     if fact.subject in main_entities and fact.object not in main_entities:
         return fact.object
     return fact.subject
+
+
+def _question_asks_country(question: str) -> bool:
+    q = question.lower()
+    return "which country" in q or "with which country" in q or "in which country" in q
+
+
+def _entity_suffix(entity: str) -> str | None:
+    if "_(" not in entity or not entity.endswith(")"):
+        return None
+    return entity.rsplit("_(", 1)[1][:-1]
+
+
+def _looks_country_or_region(entity: str) -> bool:
+    if entity in COUNTRY_OR_REGION_NAMES:
+        return True
+    suffix = _entity_suffix(entity)
+    return bool(suffix and suffix in COUNTRY_OR_REGION_NAMES)
+
+
+def _looks_person_name(entity: str) -> bool:
+    if "(" in entity:
+        return False
+    parts = [part for part in entity.split("_") if part]
+    return len(parts) >= 2 and entity not in COUNTRY_OR_REGION_NAMES
+
+
+def _answer_type_rank(parsed: ParsedQuestion, fact: Fact) -> tuple[int, int]:
+    answer = _answer_from_fact(
+        fact,
+        parsed.target_slot,
+        parsed.metadata.get("time_level"),
+        set(parsed.main_entity_candidates),
+    )
+    if parsed.target_slot == "time" or not _question_asks_country(parsed.question):
+        return (0, 0)
+    if _looks_country_or_region(answer):
+        return (0, len(answer))
+    if _looks_person_name(answer):
+        return (2, len(answer))
+    return (1, len(answer))
+
+
+def _rank_for_answer_type(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
+    return sorted(facts, key=lambda fact: _answer_type_rank(parsed, fact))
+
+
+def _first_ties(candidates: list[Fact]) -> list[Fact]:
+    valid = [fact for fact in candidates if fact_time(fact)]
+    if not valid:
+        return []
+    first_time = min(fact_time(fact) for fact in valid)
+    return [fact for fact in valid if fact_time(fact) == first_time]
+
+
+def _last_ties(candidates: list[Fact]) -> list[Fact]:
+    valid = [fact for fact in candidates if fact_time(fact)]
+    if not valid:
+        return []
+    last_time = max(fact_time(fact) for fact in valid)
+    return [fact for fact in valid if fact_time(fact) == last_time]
 
 
 def _filter_answer_direction(parsed: ParsedQuestion, facts: list[Fact]) -> list[Fact]:
@@ -69,36 +178,54 @@ def execute_chain(parsed: ParsedQuestion, chain: EvidenceChain) -> EvidenceChain
         selected = (
             _filter_answer_direction(parsed, facts[:1])
             if not chain.anchor_facts and parsed.anchor_expression
-            else first(_filter_answer_direction(parsed, after(chain.anchor_facts[0], facts[1:])))
+            else _rank_for_answer_type(
+                parsed,
+                _first_ties(_filter_answer_direction(parsed, after(chain.anchor_facts[0], facts[1:]))),
+            )
         )
     elif op == "before":
         selected = (
             _filter_answer_direction(parsed, facts[:1])
             if not chain.anchor_facts and parsed.anchor_expression
-            else last(_filter_answer_direction(parsed, before(chain.anchor_facts[0], facts[1:])))
+            else _rank_for_answer_type(
+                parsed,
+                _last_ties(_filter_answer_direction(parsed, before(chain.anchor_facts[0], facts[1:]))),
+            )
         )
     elif op == "first":
         scope = equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level"))
         scope = _filter_answer_direction(parsed, scope)
-        selected = first(scope)
+        selected = _rank_for_answer_type(parsed, _first_ties(scope))
     elif op == "last":
         scope = equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level"))
         scope = _filter_answer_direction(parsed, scope)
-        selected = last(scope)
+        selected = _rank_for_answer_type(parsed, _last_ties(scope))
     elif op == "after_first":
-        selected = first(_filter_answer_direction(parsed, after(chain.anchor_facts[0], facts[1:])))
-    elif op == "before_last":
-        selected = last(_filter_answer_direction(parsed, before(chain.anchor_facts[0], facts[1:])))
-    elif op == "equal":
-        selected = _filter_answer_direction(
+        selected = _rank_for_answer_type(
             parsed,
-            equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level")),
+            _first_ties(_filter_answer_direction(parsed, after(chain.anchor_facts[0], facts[1:]))),
+        )
+    elif op == "before_last":
+        selected = _rank_for_answer_type(
+            parsed,
+            _last_ties(_filter_answer_direction(parsed, before(chain.anchor_facts[0], facts[1:]))),
+        )
+    elif op == "equal":
+        selected = _rank_for_answer_type(
+            parsed,
+            _filter_answer_direction(
+                parsed,
+                equal_time(parsed.anchor_expression, facts, parsed.metadata.get("time_level")),
+            ),
         )
     elif op == "equal_multi":
         anchor_time = chain.anchor_facts[0].representative_time if chain.anchor_facts else None
-        selected = _filter_answer_direction(
+        selected = _rank_for_answer_type(
             parsed,
-            equal_time(anchor_time, facts[1:], parsed.metadata.get("time_level")),
+            _filter_answer_direction(
+                parsed,
+                equal_time(anchor_time, facts[1:], parsed.metadata.get("time_level")),
+            ),
         )
     else:
         selected = facts[:1]

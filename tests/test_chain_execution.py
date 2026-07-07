@@ -236,6 +236,27 @@ class ChainExecutionTest(unittest.TestCase):
 
         self.assertEqual(executed.execution_result, ["Vietnam"])
 
+    def test_country_answer_tie_ranking_prefers_country_over_person(self):
+        facts = [
+            Fact.from_values("1", "Cao_Duc_Phat", "Praise_or_endorse", "Iran", "2009-12-24"),
+            Fact.from_values("2", "Vietnam", "Praise_or_endorse", "Iran", "2009-12-24"),
+        ]
+        parsed = ParsedQuestion(
+            question="Which country last praised Iran in 2009?",
+            entities=["Iran"],
+            relations=["Praise_or_endorse"],
+            main_entity_candidates=["Iran"],
+            temporal_operator="last",
+            anchor_expression="2009",
+            target_slot="subject",
+            metadata={"time_level": "year"},
+        )
+        chain = EvidenceChain(chain_id="c", facts=facts, roles=["context_fact"] * len(facts), operator="last")
+
+        executed = execute_chain(parsed, chain)
+
+        self.assertEqual(executed.execution_result[:2], ["Vietnam", "Cao_Duc_Phat"])
+
     def test_object_answer_direction_excludes_main_as_object(self):
         facts = [
             Fact.from_values("1", "Japan", "Express_intent_to_meet_or_negotiate", "France", "2005-04-01"),
